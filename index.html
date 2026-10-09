@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Love Heart</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: #060208;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+            max-width: 100vw;
+            max-height: 100vh;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="heartCanvas" width="800" height="800"></canvas>
+
+<script>
+const canvas = document.getElementById("heartCanvas");
+const ctx = canvas.getContext("2d");
+
+const SC = 21;
+const OY = -20; 
+const DURATION = 10;
+const TICK = 16;
+const ANIM = 42;
+const LIFT = 34;
+const GAP = 7;
+const SIZES = [9, 10, 11, 12];
+const FONT = "Arial";
+const BG = "#060208";
+
+const PHRASES = [
+    "I love you", "Seni seviyorum", "Te amo", "Je t'aime",
+    "Ich liebe dich", "Ti amo", "Eu te amo", "Я тебя люблю",
+    "사랑해", "愛してる", "我爱你", "मैं तुमसे प्यार करता हूँ",
+    "Σ' αγαπώ", "Ik hou van jou", "Jag älskar dig", "Kocham cię",
+    "ฉันรักเธอ", "Anh yêu em", "Aku cinta kamu", "Я тебе кохаю"
+];
+
+let seed = 11;
+function random() {
+    let x = Math.sin(seed++) * 10000;
+    return x - Math.floor(x);
+}
+function uniform(min, max) { return min + random() * (max - min); }
+function choice(arr) { return arr[Math.floor(random() * arr.length)]; }
+function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+}
+
+function heart(a) {
+    let x = 16 * Math.pow(Math.sin(a), 3);
+    let y = 13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a);
+    return [x * SC + 400, -y * SC + 400 + OY];
+}
+
+function mix(a, b, k) {
+    return a.map((p, i) => p + (b[i] - p) * k);
+}
+function dim(c, k) {
+    return c.map(v => v * k);
+}
+function rgbStr(c) {
+    return `rgb(${Math.floor(c[0] * 255)}, ${Math.floor(c[1] * 255)}, ${Math.floor(c[2] * 255)})`;
+}
+
+const POLY = [];
+for (let i = 0; i < 720; i++) POLY.push(heart(2 * Math.PI * i / 720));
+const EDGES = POLY.map((p, i) => [p, POLY[(i + 1) % POLY.length]]);
+const YMAX = Math.max(...POLY.map(p => p[1]));
+const YMIN = Math.min(...POLY.map(p => p[1]));
+const CY = (YMAX + YMIN) / 2;
+
+function spans(y) {
+    let xs = [];
+    for (let [[x1, y1], [x2, y2]] of EDGES) {
+        if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) {
+            xs.push(x1 + (y - y1) * (x2 - x1) / (y2 - y1));
+        }
+    }
+    xs.sort((a, b) => a - b);
+    let result = [];
+    for (let i = 0; i < xs.length; i += 2) result.push([xs[i], xs[i+1]]);
+    return result;
+}
+
+function intersect(A, B) {
+    let out = [];
+    for (let a of A) {
+        for (let b of B) {
+            let lo = Math.max(a[0], b[0]), hi = Math.min(a[1], b[1]);
+            if (hi - lo > 14) out.push([lo, hi]);
+        }
+    }
+    return out;
+}
+
+function* phraseCycle() {
+    while (true) {
+        let order = PHRASES.slice();
+        shuffle(order);
+        for (let p of order) yield p;
+    }
+}
+
+function mathDist(x, y) {
+    return Math.hypot((x - 400) / (16 * SC), (y - CY) / (14.5 * SC));
+}
+
+function build() {
+    let cycle = phraseCycle();
+    let row_h = 16; 
+    let half = row_h / 2;
+    let placed = [];
+
+    let y = YMIN + half;
+    while (y < YMAX - half) {
+        let row = intersect(spans(y - half), spans(y + half));
+        for (let [lo, hi] of row) {
+            lo += 4; hi -= 4;
+            let cur = lo + uniform(0, 8);
+            let line = [];
+
+            while (true) {
+                let fit = null;
+                for (let k = 0; k < 10; k++) {
+                    let text = cycle.next().value;
+                    let size = choice(SIZES);
+                    ctx.font = `bold ${size}px ${FONT}`;
+                    let w = ctx.measureText(text).width;
+                    if (cur + w <= hi) {
+                        fit = { text, size, w };
+                        break;
+                    }
+                }
+                if (!fit) break;
+                line.push({ x: cur + fit.w / 2, text: fit.text, size: fit.size, w: fit.w });
+                cur += fit.w + GAP;
+            }
+
+            if (line.length === 0) continue;
+            if (line.length > 1) {
+                let left = hi - (line[line.length - 1].x + line[line.length - 1].w / 2);
+                line.forEach((it, i) => it.x += left * i / (line.length - 1));
+            } else {
+                line[0].x = (lo + hi) / 2;
+            }
+
+            line.forEach((it, i) => {
+                let edge = (i === 0 || i === line.length - 1);
+                placed.push({ x: it.x, y: y, text: it.text, size: it.size, edge: edge });
+            });
+        }
+        y += row_h;
+    }
+
+    const wine = [0.58, 0.0, 0.09];
+    const crimson = [0.90, 0.05, 0.14];
+    const blood = [0.98, 0.10, 0.16];
+
+    placed.forEach(p => {
+        let rad = Math.min(1.0, mathDist(p.x, p.y));
+        let base = mix(wine, crimson, 0.25 + 0.75 * rad);
+        base = mix(base, blood, uniform(0, 0.35) + (p.edge ? 0.3 : 0));
+        p.color = base.map(v => Math.min(1, v));
+        p.rad = rad;
+    });
+
+    let edges = placed.filter(p => p.edge);
+    let inner = placed.filter(p => !p.edge);
+    edges.sort((a, b) => (Math.atan2(a.x - 400, a.y - CY) % (2 * Math.PI)) - (Math.atan2(b.x - 400, b.y - CY) % (2 * Math.PI)));
+    inner.sort((a, b) => (-a.rad + uniform(0, 0.08)) - (-b.rad + uniform(0, 0.08)));
+
+    return [...edges, ...inner];
+}
+
+const FLASH = [1.0, 0.78, 0.78];
+const BGC = [6/255, 2/255, 8/255];
+const ORDER = build();
+let itemIndex = 0;
+let RATE = ORDER.length / (DURATION * 1000 / TICK);
+let acc = 0;
+let active = [];
+let mainIds = [];
+let spawning = true;
+
+function spawn(p) {
+    p.f = 0;
+    p.dx = uniform(-10, 10);
+    active.push(p);
+    mainIds.push(p);
+}
+
+function clamp(v) { return Math.max(0, Math.min(1, v)); }
+
+function draw() {
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    let nextActive = [];
+    for (let p of active) {
+        p.f++;
+        let u = clamp(p.f / ANIM);
+        let e = 1 - Math.pow(1 - u, 3);
+        let hover = (1 - e) * LIFT;
+        let px = p.x + p.dx * (1 - e);
+        let py = p.y + hover;
+
+        // Shadow
+        ctx.font = `bold ${p.size}px ${FONT}`;
+        ctx.fillStyle = rgbStr(mix(BGC, dim(p.color, 0.30), e));
+        ctx.fillText(p.text, px + 2, py + 3);
+
+        // Halo
+        ctx.font = `bold ${p.size + 1}px ${FONT}`;
+        ctx.fillStyle = rgbStr(mix(BGC, dim(p.color, 0.20), e * e));
+        ctx.fillText(p.text, px, py);
+
+        // Main Text
+        let flash = 0.75 * Math.sin(Math.PI * clamp((u - 0.55) / 0.45));
+        let col = mix(mix(BGC, p.color, Math.pow(e, 1.5)), FLASH, flash);
+        ctx.font = `bold ${p.size}px ${FONT}`;
+        ctx.fillStyle = rgbStr(col);
+        ctx.fillText(p.text, px, py);
+
+        if (u < 1) nextActive.push(p);
+    }
+    active = nextActive;
+
+    // Draw completed ones
+    for (let p of mainIds) {
+        if (!active.includes(p)) {
+            ctx.font = `bold ${p.size}px ${FONT}`;
+            ctx.fillStyle = rgbStr(p.currentColor || p.color);
+            ctx.fillText(p.text, p.x, p.y);
+        }
+    }
+}
+
+function step() {
+    if (spawning) {
+        acc += RATE;
+        while (acc >= 1 && itemIndex < ORDER.length) {
+            acc -= 1;
+            spawn(ORDER[itemIndex++]);
+        }
+        if (itemIndex >= ORDER.length) spawning = false;
+    }
+
+    draw();
+
+    if (!spawning && active.length === 0) {
+        shimmer();
+        return;
+    }
+    setTimeout(step, TICK);
+}
+
+function shimmer() {
+    if (mainIds.length > 0) {
+        let p = mainIds[Math.floor(Math.random() * mainIds.length)];
+        p.currentColor = mix(p.color, FLASH, 0.6);
+        draw();
+        setTimeout(() => {
+            p.currentColor = p.color;
+            draw();
+        }, 260);
+    }
+    setTimeout(shimmer, 140);
+}
+
+setTimeout(step, 200);
+</script>
+</body>
+</html>
